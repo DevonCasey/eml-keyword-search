@@ -1,10 +1,22 @@
 use rfd::FileDialog;
-use std::fs;
-use std::io;
-use std::io::{stdin, stdout, Read, Write};
+use std::fs::{self, OpenOptions};
+use std::io::{self, stdin, stdout, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use std::time::SystemTime;
 use walkdir::WalkDir;
+
+fn log_message(message: &str) {
+    let sys_time = SystemTime::now();
+    let log_file_path = Path::new("C:\\Logs\\email_search.txt");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file_path)
+        .expect("Failed to open log file");
+
+    writeln!(file, "{:?} {}", sys_time, message).expect("Failed to write to log file");
+}
 
 fn pause() {
     let mut stdout = stdout();
@@ -20,8 +32,10 @@ fn pause() {
 fn emails_with_keyword(dir: &Path, keyword: &str) -> Vec<PathBuf> {
     let start_time = Instant::now();
     let mut matching_keyword_email_paths = Vec::new();
+    let search_term = keyword.to_lowercase();
 
     println!("Started the search...");
+    log_message("Started the search...");
 
     for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
         if let Some(extension) = entry.path().extension() {
@@ -29,14 +43,20 @@ fn emails_with_keyword(dir: &Path, keyword: &str) -> Vec<PathBuf> {
                 let email_path = entry.path().to_path_buf();
                 if let Ok(mut file) = fs::File::open(&email_path) {
                     let mut contents = String::new();
-                    println!("{}", contents);
                     if file.read_to_string(&mut contents).is_ok() {
-                        if contents.contains(keyword) {
-                            // Check if the email content contains keyword
+                        if contents.to_lowercase().contains(search_term.as_str()) {
                             matching_keyword_email_paths.push(email_path.clone());
                             println!("Found matching email at {}", email_path.display());
+                            log_message(&format!(
+                                "Found matching email at {}",
+                                email_path.display()
+                            ));
                         } else {
-                            println!("No matching keyword at {}", email_path.display());
+                            println!("No matching email found at {}", email_path.display());
+                            log_message(&format!(
+                                "No matching keyword at {}",
+                                email_path.display()
+                            ));
                         }
                     }
                 }
@@ -48,6 +68,7 @@ fn emails_with_keyword(dir: &Path, keyword: &str) -> Vec<PathBuf> {
     let elapsed_time = end_time.duration_since(start_time);
 
     println!("Search took {:?} to complete", elapsed_time);
+    log_message(&format!("Search took {:?} to complete", elapsed_time));
 
     matching_keyword_email_paths
 }
@@ -56,6 +77,7 @@ fn copy_source_to_destination(source: &Path, destination: &Path) -> io::Result<(
     let start_time = Instant::now();
 
     println!("Started the copying of files...");
+    log_message("Started the copying of files...");
 
     if source.is_dir() {
         fs::create_dir_all(destination)?;
@@ -77,7 +99,8 @@ fn copy_source_to_destination(source: &Path, destination: &Path) -> io::Result<(
     let end_time = Instant::now();
     let elapsed_time = end_time.duration_since(start_time);
 
-    println!("Copy took {:?} to complete", elapsed_time);
+    println!("Copy took {:?} to complete.", elapsed_time);
+    log_message(&format!("Copy took {:?} to complete", elapsed_time));
 
     Ok(())
 }
@@ -100,14 +123,8 @@ fn main() {
     println!(r"| |____| | | | | | (_| | | |  ____) |  __/ (_| | | | (__| | | |");
     println!(r"|______|_| |_| |_|\__,_|_|_| |_____/ \___|\__,_|_|  \___|_| |_|");
     println!("=================== Written by: Devon Casey ====================");
-    println!(
-        "This program will first prompt you for the 'root' path the .eml export(s) \
-             from MailStore are located at."
-    );
-    println!(
-        "The next file selector GUI will be for the destination that you want \
-             the emails with the matching keyword to be exported to."
-    );
+    println!("This program will first prompt you for the 'root' path the .eml export(s) from MailStore are located at.");
+    println!("The next file selector GUI will be for the destination that you want the emails with the matching keyword to be exported to.");
 
     pause();
 
@@ -126,7 +143,7 @@ fn main() {
         .expect("Failed to read input!");
     let keyword_to_search = keyword_to_search.trim();
 
-    // Call emails_with_keyword and return a vector of paths that match the entered keyword.
+    // Call emails_with_keyword and return a list of paths that match the entered keyword.
     let matching_paths = emails_with_keyword(&search_directory, keyword_to_search);
 
     // Iterate through matching_paths and copy them to the destination
@@ -136,8 +153,15 @@ fn main() {
         let destination_path = copy_to_directory.join(relative_path);
 
         match copy_source_to_destination(&matching_path, &destination_path) {
-            Ok(_) => println!("Successfully copied to {}", destination_path.display()),
-            Err(e) => eprintln!("Failed to copy {}: {}", matching_path.display(), e),
+            Ok(_) => log_message(&format!(
+                "Successfully copied to {}",
+                destination_path.display()
+            )),
+            Err(e) => log_message(&format!(
+                "Failed to copy {}: {}",
+                matching_path.display(),
+                e
+            )),
         }
     }
 
