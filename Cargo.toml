@@ -1,7 +1,14 @@
 [package]
 name = "eml-keyword-search"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+
+[package.metadata.bundle]
+name = "Email Search"
+identifier = "eml-keyword-search"
+version = "0.1.1"
+category = "Email Searching"
+short_description = "Searches .eml files for a keyword."
 
 [dependencies]
 walkdir = "2.5.0"
