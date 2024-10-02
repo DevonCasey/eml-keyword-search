@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use rfd::FileDialog;
 use std::fs;
 use std::io;
@@ -19,36 +20,37 @@ fn pause() {
 
 fn emails_with_keyword(dir: &Path, keyword: &str) -> Vec<PathBuf> {
     let start_time = Instant::now();
-    let mut matching_keyword_email_paths = Vec::new();
-
-    println!("Started the search...");
-
-    for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
-        if let Some(extension) = entry.path().extension() {
-            if extension == "eml" {
-                let email_path = entry.path().to_path_buf();
-                if let Ok(mut file) = fs::File::open(&email_path) {
-                    let mut contents = String::new();
-                    println!("{}", contents);
-                    if file.read_to_string(&mut contents).is_ok() {
-                        if contents.contains(keyword) {
-                            // Check if the email content contains keyword
-                            matching_keyword_email_paths.push(email_path.clone());
-                            println!("Found matching email at {}", email_path.display());
-                        } else {
-                            println!("No matching keyword at {}", email_path.display());
-                        }
+    let matching_keyword_email_paths: Vec<PathBuf> = WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| {
+            if let Some(extension) = entry.path().extension() {
+                extension == "eml"
+            } else {
+                false
+            }
+        })
+        .filter_map(|entry| {
+            let email_path = entry.path().to_path_buf();
+            if let Ok(mut file) = fs::File::open(&email_path) {
+                let mut contents = String::new();
+                if file.read_to_string(&mut contents).is_ok() {
+                    if contents.contains(keyword) {
+                        println!("Found matching email at {}", email_path.display());
+                        return Some(email_path);
+                    } else {
+                        println!("No matching keyword at {}", email_path.display());
                     }
                 }
             }
-        }
-    }
+            None
+        })
+        .collect();
 
     let end_time = Instant::now();
     let elapsed_time = end_time.duration_since(start_time);
 
     println!("Search took {:?} to complete", elapsed_time);
-
     matching_keyword_email_paths
 }
 
@@ -129,8 +131,8 @@ fn main() {
     // Call emails_with_keyword and return a vector of paths that match the entered keyword.
     let matching_paths = emails_with_keyword(&search_directory, keyword_to_search);
 
-    // Iterate through matching_paths and copy them to the destination
-    for matching_path in matching_paths {
+    // Use parallel iteration to copy files
+    matching_paths.par_iter().for_each(|matching_path| {
         // Calculate the relative path from the search directory to the current matching file
         let relative_path = matching_path.strip_prefix(&search_directory).unwrap();
         let destination_path = copy_to_directory.join(relative_path);
@@ -139,7 +141,7 @@ fn main() {
             Ok(_) => println!("Successfully copied to {}", destination_path.display()),
             Err(e) => eprintln!("Failed to copy {}: {}", matching_path.display(), e),
         }
-    }
+    });
 
     pause();
 }
