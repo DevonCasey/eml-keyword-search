@@ -1,6 +1,7 @@
 use rayon::prelude::*;
 use rfd::FileDialog;
 use std::fs::{self, OpenOptions};
+use std::io;
 use std::io::{stdin, stdout, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -41,7 +42,42 @@ fn select_directory_via_gui(title: &str) -> PathBuf {
     selected_dir
 }
 
-//noinspection ALL
+fn copy_source_to_destination(source: &Path, destination: &Path) -> io::Result<()> {
+    let start_time = Instant::now();
+
+    println!("Started the copying of files...");
+    log_message("Started the copying of files...");
+    println!("Started copying: {}", source.display());
+    log_message(&format!("Started copying: {}", source.display()));
+
+    if source.is_dir() {
+        fs::create_dir_all(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            let dest_path = destination.join(entry.file_name());
+            fs::create_dir_all(destination.parent().unwrap())?;
+            fs::copy(source, destination)?;
+
+            if entry_path.is_dir() {
+                copy_source_to_destination(&entry_path, &dest_path)?;
+            } else {
+                fs::copy(&entry_path, &dest_path)?;
+            }
+        }
+    } else {
+        fs::create_dir_all(destination.parent().unwrap())?;
+        fs::copy(source, destination)?;
+    }
+    let end_time = Instant::now();
+    let elapsed_time = end_time.duration_since(start_time);
+
+    println!("Copy took {:?} to complete.", elapsed_time);
+    log_message(&format!("Copy took {:?} to complete", elapsed_time));
+
+    Ok(())
+}
+
 fn find_emails_with_keyword_and_copy(dir: &Path, keyword: &str, copy_to_directory: &Path) {
     let start_time = Instant::now();
     let search_term = keyword.to_lowercase();
@@ -53,7 +89,7 @@ fn find_emails_with_keyword_and_copy(dir: &Path, keyword: &str, copy_to_director
     WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .par_bridge() // RR seems to think this isn't loaded...
+        .par_bridge()
         .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("eml"))
         .for_each(|entry| {
             let email_path = entry.path().to_path_buf();

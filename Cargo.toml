@@ -1,18 +1,19 @@
 [package]
 name = "eml-keyword-search"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
-
-[package.metadata.bundle]
-name = "Email Search"
-identifier = "eml-keyword-search"
-version = "0.1.1"
-category = "Email Searching"
-short_description = "Searches .eml files for a keyword."
+authors = ["Devon Casey <devon.s.casey@gmail.com>"]
 
 [dependencies]
 walkdir = "2.5.0"
 chrono = "0.4"
 fs_extra = "1.3.0"
 rfd = "0.15.0"
-rayon = "1.10.0"
+rayon = "1.10"
+
+[package.metadata.bundle]
+name = "Email Search"
+identifier = "eml-keyword-search"
+version = "0.2.0"
+category = "Email Searching"
+short_description = "Searches .eml files for a keyword."
