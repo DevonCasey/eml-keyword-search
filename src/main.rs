@@ -1,7 +1,9 @@
+use rayon::prelude::*;
 use rfd::FileDialog;
 use std::fs::{self, OpenOptions};
 use std::io::{self, stdin, stdout, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::time::SystemTime;
 use walkdir::WalkDir;
@@ -29,73 +31,25 @@ fn pause() {
         .expect("Failed to read input!");
 }
 
-fn emails_with_keyword(dir: &Path, keyword: &str) -> Vec<PathBuf> {
-    let start_time = Instant::now();
-    let mut matching_keyword_email_paths = Vec::new();
-    let search_term = keyword.to_lowercase();
+fn select_directory_via_gui(title: &str) -> PathBuf {
+    let selected_dir = FileDialog::new()
+        .set_title(title) // Set the window title
+        .set_directory(".") // Optionally set a default directory
+        .pick_folder()
+        .expect("No directory selected!");
 
-    println!("Started the search...");
-    log_message("Started the search...");
-
-    for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
-        if let Some(extension) = entry.path().extension() {
-            if extension == "eml" {
-                let email_path = entry.path().to_path_buf();
-                if let Ok(mut file) = fs::File::open(&email_path) {
-                    let mut contents = String::new();
-                    if file.read_to_string(&mut contents).is_ok() {
-                        if contents.to_lowercase().contains(search_term.as_str()) {
-                            matching_keyword_email_paths.push(email_path.clone());
-                            println!("Found matching email at {}", email_path.display());
-                            log_message(&format!(
-                                "Found matching email at {}",
-                                email_path.display()
-                            ));
-                        } else {
-                            println!("No matching email found at {}", email_path.display());
-                            log_message(&format!(
-                                "No matching keyword at {}",
-                                email_path.display()
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let end_time = Instant::now();
-    let elapsed_time = end_time.duration_since(start_time);
-
-    println!("Search took {:?} to complete", elapsed_time);
-    log_message(&format!("Search took {:?} to complete", elapsed_time));
-
-    matching_keyword_email_paths
+    selected_dir
 }
 
 fn copy_source_to_destination(source: &Path, destination: &Path) -> io::Result<()> {
     let start_time = Instant::now();
 
-    println!("Started the copying of files...");
-    log_message("Started the copying of files...");
+    println!("Started copying: {}", source.display());
+    log_message(&format!("Started copying: {}", source.display()));
 
-    if source.is_dir() {
-        fs::create_dir_all(destination)?;
-        for entry in fs::read_dir(source)? {
-            let entry = entry?;
-            let entry_path = entry.path();
-            let dest_path = destination.join(entry.file_name());
+    fs::create_dir_all(destination.parent().unwrap())?;
+    fs::copy(source, destination)?;
 
-            if entry_path.is_dir() {
-                copy_source_to_destination(&entry_path, &dest_path)?;
-            } else {
-                fs::copy(&entry_path, &dest_path)?;
-            }
-        }
-    } else {
-        fs::create_dir_all(destination.parent().unwrap())?;
-        fs::copy(source, destination)?;
-    }
     let end_time = Instant::now();
     let elapsed_time = end_time.duration_since(start_time);
 
@@ -105,14 +59,62 @@ fn copy_source_to_destination(source: &Path, destination: &Path) -> io::Result<(
     Ok(())
 }
 
-fn select_directory_via_gui(title: &str) -> PathBuf {
-    let selected_dir = FileDialog::new()
-        .set_title(title) // Set the window title
-        .set_directory(".") // Optionally set a default directory
-        .pick_folder()
-        .expect("No directory selected!");
+//noinspection ALL
+fn find_emails_with_keyword_and_copy(dir: &Path, keyword: &str, copy_to_directory: &Path) {
+    let start_time = Instant::now();
+    let search_term = keyword.to_lowercase();
+    let log_mutex = Arc::new(Mutex::new(()));
 
-    selected_dir
+    println!("Started the search...");
+    log_message("Started the search...");
+
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .par_bridge() // RR seems to think this isn't loaded...
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("eml"))
+        .for_each(|entry| {
+            let email_path = entry.path().to_path_buf();
+            if let Ok(mut file) = fs::File::open(&email_path) {
+                let mut contents = String::new();
+                if file.read_to_string(&mut contents).is_ok()
+                    && contents.to_lowercase().contains(&search_term)
+                {
+                    // Reads the emails contents as a string and converts it to lowercase.
+                    let relative_path = email_path.strip_prefix(&dir).unwrap();
+                    let destination_path = copy_to_directory.join(relative_path);
+                    println!("Found matching email at {}", email_path.display());
+                    log_message(&format!("Found matching email at {}", email_path.display()));
+                    match copy_source_to_destination(&email_path, &destination_path) {
+                        Ok(_) => {
+                            let log_mutex = log_mutex.clone();
+                            drop(log_mutex.lock().unwrap());
+                            log_message(&format!(
+                                "Successfully copied to {}",
+                                destination_path.display()
+                            ));
+                        }
+                        Err(e) => {
+                            let log_mutex = log_mutex.clone();
+                            drop(log_mutex.lock().unwrap());
+                            log_message(&format!("Failed to copy {}: {}", email_path.display(), e));
+                        }
+                    }
+                } else {
+                    println!("No matching email found at {}", email_path.display());
+                    log_message(&format!("No matching keyword at {}", email_path.display()));
+                }
+            }
+        });
+
+    let end_time = Instant::now();
+    let elapsed_time = end_time.duration_since(start_time);
+
+    println!("Search and copy took {:?} to complete", elapsed_time);
+    log_message(&format!(
+        "Search and copy took {:?} to complete",
+        elapsed_time
+    ));
 }
 
 fn main() {
@@ -136,34 +138,15 @@ fn main() {
 
     // Prompt the user to enter the keyword to search for.
     println!("Please enter search keyword: ");
-    io::stdout().flush().unwrap();
+    stdout().flush().unwrap();
     let mut keyword_to_search = String::new();
-    io::stdin()
+    stdin()
         .read_line(&mut keyword_to_search)
         .expect("Failed to read input!");
     let keyword_to_search = keyword_to_search.trim();
 
-    // Call emails_with_keyword and return a list of paths that match the entered keyword.
-    let matching_paths = emails_with_keyword(&search_directory, keyword_to_search);
-
-    // Iterate through matching_paths and copy them to the destination
-    for matching_path in matching_paths {
-        // Calculate the relative path from the search directory to the current matching file
-        let relative_path = matching_path.strip_prefix(&search_directory).unwrap();
-        let destination_path = copy_to_directory.join(relative_path);
-
-        match copy_source_to_destination(&matching_path, &destination_path) {
-            Ok(_) => log_message(&format!(
-                "Successfully copied to {}",
-                destination_path.display()
-            )),
-            Err(e) => log_message(&format!(
-                "Failed to copy {}: {}",
-                matching_path.display(),
-                e
-            )),
-        }
-    }
+    // Perform search and copy as emails with matching keywords are found
+    find_emails_with_keyword_and_copy(&search_directory, keyword_to_search, &copy_to_directory);
 
     pause();
 }
