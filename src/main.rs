@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 use rfd::FileDialog;
 use std::fs::{self, OpenOptions};
-use std::io::{self, stdin, stdout, Read, Write};
+use std::io::{stdin, stdout, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -39,24 +39,6 @@ fn select_directory_via_gui(title: &str) -> PathBuf {
         .expect("No directory selected!");
 
     selected_dir
-}
-
-fn copy_source_to_destination(source: &Path, destination: &Path) -> io::Result<()> {
-    let start_time = Instant::now();
-
-    println!("Started copying: {}", source.display());
-    log_message(&format!("Started copying: {}", source.display()));
-
-    fs::create_dir_all(destination.parent().unwrap())?;
-    fs::copy(source, destination)?;
-
-    let end_time = Instant::now();
-    let elapsed_time = end_time.duration_since(start_time);
-
-    println!("Copy took {:?} to complete.", elapsed_time);
-    log_message(&format!("Copy took {:?} to complete", elapsed_time));
-
-    Ok(())
 }
 
 //noinspection ALL
